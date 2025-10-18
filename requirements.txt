@@ -1,4 +1,4 @@
-sounddevice>=0.5.0      # Python audio synthesis library
+pygame>=2.6.1            # Python audio synthesis library
 numpy>=1.26.4           # Numerical computing library
 kivy>=2.3.0             # Framework for multi-touch applications
 pytest>=8.3.2           # Testing framework
