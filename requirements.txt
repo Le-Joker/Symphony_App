@@ -1,4 +1,20 @@
-pygame>=2.6.1            # Python audio synthesis library
-numpy>=1.26.4           # Numerical computing library
-kivy>=2.3.0             # Framework for multi-touch applications
-pytest>=8.3.2           # Testing framework
+# Dépendances du projet "Symphonie Interactive"
+# Dernières versions stables (mise à jour octobre 2025)
+
+# Interface graphique
+PyQt5>=5.15.11
+
+# Calculs et traitement du signal
+numpy>=2.3.1
+
+# Visualisation graphique
+matplotlib>=3.10.7
+
+# Lecture audio
+simpleaudio>=1.0.4
+
+# Manipulation, conversion et mixage audio
+pydub>=0.25.1
+
+# Wrapper Python pour FFmpeg (requis par Pydub)
+ffmpeg-python>=0.2.0
