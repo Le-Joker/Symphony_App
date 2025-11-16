@@ -1,20 +1,16 @@
-# Dépendances du projet "Symphonie Interactive"
-# Dernières versions stables (mise à jour octobre 2025)
+# Symphony — Application de Balafon Numérique Moderne
 
 # Interface graphique
 PyQt5>=5.15.11
 
-# Calculs et traitement du signal
+# Audio et traitement du signal
 numpy>=2.3.1
+scipy>=1.11.0
+sounddevice>=0.4.6
+soundfile>=0.12.1
 
-# Visualisation graphique
+# Visualisation
 matplotlib>=3.10.7
 
-# Lecture audio
-simpleaudio>=1.0.4
-
-# Manipulation, conversion et mixage audio
-pydub>=0.25.1
-
-# Wrapper Python pour FFmpeg (requis par Pydub)
-ffmpeg-python>=0.2.0
+# Tests
+pytest>=7.4.0
