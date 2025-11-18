@@ -1,0 +1,50 @@
+# Environnement virtuel
+env/
+venv/
+ENV/
+
+# Fichiers compilés
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Système
+.DS_Store
+Thumbs.db
+
+# 🎵 SYMPHONY APP STORAGE
+# Les enregistrements ne doivent PAS être pushés sur GitHub
+recordings/
+# Mais la base de données locale non plus (optionnel selon tes préférences)
+data/symphony.db
