@@ -2,12 +2,15 @@
 
 Design moderne, responsive et élégant avec visualisations professionnelles.
 Optimisé: Oscilloscope supprimé, Spectre conservé, Onglet Paramètres ajouté.
+Nouveau: Onglet Enregistrements pour lire les fichiers WAV sauvegardés.
 """
 
 import sys
 import os
 import json
 import numpy as np
+import sounddevice as sd
+import soundfile as sf
 from typing import Optional
 from pathlib import Path
 
@@ -17,7 +20,7 @@ from PyQt5.QtWidgets import (
     QComboBox, QScrollArea, QListWidget, QListWidgetItem, QCheckBox,
     QSpinBox, QTabWidget, QDoubleSpinBox
 )
-from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal, QObject, QThread
 from PyQt5.QtGui import (
     QFont, QPalette, QColor, QIcon, QBrush, QLinearGradient,
     QKeySequence
@@ -338,6 +341,252 @@ class SpectrumWidget(FigureCanvas):
 
 
 # ============================================================================
+# LECTEUR D'ENREGISTREMENTS
+# ============================================================================
+
+class RecordingPlayerWidget(QWidget):
+    """Widget pour lire les enregistrements sauvegardés."""
+    
+    def __init__(self, user_id: int, db: Database, parent=None):
+        super().__init__(parent)
+        self.user_id = user_id
+        self.db = db
+        self.current_playback = None
+        self.is_playing = False
+        self.recordings_list = []
+        self.current_recording_data = None
+        self.current_position = 0
+        self.sample_rate = 44100
+        self.playback_start_time = None
+        self.playback_start_pos = 0
+        
+        self.init_ui()
+        self.load_recordings()
+        
+    def init_ui(self):
+        """Construit l'interface du lecteur."""
+        layout = QVBoxLayout(self)
+        
+        # Titre
+        title = QLabel("Enregistrements")
+        title.setFont(QFont("Segoe UI", 11, QFont.Bold))
+        layout.addWidget(title)
+        
+        # Liste des enregistrements
+        self.recordings_widget = QListWidget()
+        self.recordings_widget.itemClicked.connect(self.on_recording_selected)
+        layout.addWidget(self.recordings_widget)
+        
+        # Contrôles de lecture
+        controls_layout = QHBoxLayout()
+        
+        self.play_btn = QPushButton("Ecouter")
+        self.play_btn.clicked.connect(self.play_selected)
+        self.play_btn.setMinimumHeight(35)
+        controls_layout.addWidget(self.play_btn)
+        
+        self.stop_btn = QPushButton("Arreter")
+        self.stop_btn.clicked.connect(self.stop_playback)
+        self.stop_btn.setMinimumHeight(35)
+        controls_layout.addWidget(self.stop_btn)
+        
+        delete_btn = QPushButton("Supprimer")
+        delete_btn.setObjectName("danger")
+        delete_btn.clicked.connect(self.delete_selected)
+        delete_btn.setMinimumHeight(35)
+        controls_layout.addWidget(delete_btn)
+        
+        layout.addLayout(controls_layout)
+        
+        # Barre de progression
+        self.progress_slider = QSlider(Qt.Horizontal)
+        self.progress_slider.setMinimum(0)
+        self.progress_slider.sliderMoved.connect(self.seek_position)
+        layout.addWidget(self.progress_slider)
+        
+        # Infos
+        self.info_label = QLabel("Aucun enregistrement")
+        self.info_label.setStyleSheet("color: #94a3b8; font-size: 9pt;")
+        layout.addWidget(self.info_label)
+        
+        # Timer pour mise à jour de progression
+        self.progress_timer = QTimer()
+        self.progress_timer.timeout.connect(self.update_progress)
+        
+    def load_recordings(self):
+        """Charge la liste des enregistrements depuis la DB."""
+        self.recordings_widget.clear()
+        self.recordings_list = self.db.get_recordings(self.user_id)
+        
+        for rec in self.recordings_list:
+            # Afficher le nom personnalisé si disponible, sinon le filename
+            try:
+                rec_name = rec['name'] if rec['name'] else rec['filename'].split('/')[-1]
+            except (KeyError, TypeError):
+                rec_name = rec['filename'].split('/')[-1]
+            
+            # Ajouter l'extension .wav au nom
+            if not rec_name.endswith('.wav'):
+                rec_name += '.wav'
+            
+            duration = rec['duration']
+            item_text = f"{rec_name} ({duration:.1f}s)"
+            item = QListWidgetItem(item_text)
+            # Stocker l'ID du recording pour une récupération fiable
+            item.setData(Qt.UserRole, rec['id'])
+            self.recordings_widget.addItem(item)
+    
+    def on_recording_selected(self, item):
+        """Sélectionne un enregistrement."""
+        try:
+            # Récupérer l'ID du recording stocké dans l'item
+            rec_id = item.data(Qt.UserRole)
+            rec_filename = None
+            
+            # Chercher le recording par ID (plus fiable que par filename)
+            for rec in self.recordings_list:
+                if rec['id'] == rec_id:
+                    rec_filename = rec['filename']
+                    break
+            
+            if rec_filename:
+                # Vérifier si le fichier existe
+                if os.path.exists(rec_filename):
+                    self.current_recording_data, self.sample_rate = sf.read(rec_filename)
+                    self.progress_slider.setMaximum(len(self.current_recording_data))
+                    self.current_position = 0
+                    self.info_label.setText(f"Charge: {item.text()}")
+                else:
+                    # Essayer avec le chemin absolu
+                    abs_path = os.path.abspath(rec_filename)
+                    if os.path.exists(abs_path):
+                        self.current_recording_data, self.sample_rate = sf.read(abs_path)
+                        self.progress_slider.setMaximum(len(self.current_recording_data))
+                        self.current_position = 0
+                        self.info_label.setText(f"Charge: {item.text()}")
+                    else:
+                        self.info_label.setText(f"Fichier introuvable: {rec_filename}")
+            else:
+                self.info_label.setText("Enregistrement non trouvé dans la base")
+        except Exception as e:
+            self.info_label.setText(f"Erreur: {str(e)}")
+    
+    def play_selected(self):
+        """Démarre la lecture."""
+        if self.current_recording_data is None:
+            self.info_label.setText("Selectionnez un enregistrement d'abord")
+            return
+        
+        try:
+            if self.is_playing:
+                sd.stop()
+            
+            self.is_playing = True
+            self.play_btn.setStyleSheet("background-color: #ef4444;")
+            self.progress_timer.start(50)
+            
+            # Enregistrer le temps et la position de départ
+            import time
+            self.playback_start_time = time.time()
+            self.playback_start_pos = 0
+            self.progress_slider.setValue(0)
+            
+            # Lecture non-bloquante
+            self.current_playback = sd.play(
+                self.current_recording_data,
+                self.sample_rate
+            )
+            self.info_label.setText("Lecture en cours...")
+        except Exception as e:
+            self.info_label.setText(f"Erreur lecture: {str(e)}")
+    
+    def stop_playback(self):
+        """Arrête la lecture."""
+        try:
+            if self.is_playing:
+                sd.stop()
+                self.is_playing = False
+                self.progress_timer.stop()
+                self.play_btn.setStyleSheet("")
+                self.current_position = 0
+                self.progress_slider.setValue(0)
+                self.playback_start_time = None
+                self.info_label.setText("Lecture arretee")
+        except Exception as e:
+            self.info_label.setText(f"Erreur: {str(e)}")
+    
+    def update_progress(self):
+        """Met à jour la barre de progression."""
+        if self.is_playing and self.current_recording_data is not None:
+            try:
+                import time
+                # Calculer la position en fonction du temps écoulé
+                if self.playback_start_time is not None:
+                    elapsed_time = time.time() - self.playback_start_time
+                    current_frame = int(elapsed_time * self.sample_rate)
+                    total_frames = len(self.current_recording_data)
+                    
+                    # Vérifier si la lecture est terminée
+                    if current_frame >= total_frames:
+                        self.stop_playback()
+                    else:
+                        self.progress_slider.blockSignals(True)
+                        self.progress_slider.setValue(current_frame)
+                        self.progress_slider.blockSignals(False)
+            except Exception as e:
+                print(f"Erreur update_progress: {e}")
+    
+    def seek_position(self, position: int):
+        """Change la position de lecture."""
+        if self.is_playing and self.current_recording_data is not None:
+            self.current_position = position
+    
+    def delete_selected(self):
+        """Supprime l'enregistrement sélectionné."""
+        item = self.recordings_widget.currentItem()
+        if not item:
+            self.info_label.setText("Selectionnez un enregistrement")
+            return
+        
+        # Récupérer l'ID depuis les données stockées
+        rec_id = item.data(Qt.UserRole)
+        if rec_id is None:
+            self.info_label.setText("Erreur: ID enregistrement non trouvé")
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "Confirmation",
+            "Supprimer cet enregistrement?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            try:
+                # Trouver et supprimer le fichier + DB
+                rec = None
+                for r in self.recordings_list:
+                    if r['id'] == rec_id:
+                        rec = r
+                        break
+                
+                if rec:
+                    # Supprimer le fichier physique
+                    if os.path.exists(rec['filename']):
+                        os.remove(rec['filename'])
+                    
+                    # Supprimer la base de données
+                    self.db.delete_recording(rec['id'])
+                    
+                    self.load_recordings()
+                    self.info_label.setText("Enregistrement supprime")
+                    self.current_recording_data = None
+                else:
+                    self.info_label.setText("Enregistrement non trouvé")
+            except Exception as e:
+                self.info_label.setText(f"Erreur suppression: {str(e)}")
+
+# ============================================================================
 # FENÊTRES
 # ============================================================================
 
@@ -654,6 +903,11 @@ class MainWindow(QWidget):
         appearance_widget.setLayout(appearance_layout)
         tabs.addTab(appearance_widget, "Apparence")
         
+        # Onglet Enregistrements
+        recordings_tab = RecordingPlayerWidget(self.user_id, self.db)
+        tabs.addTab(recordings_tab, "Enregistrements")
+        self.recordings_player = recordings_tab
+        
         settings_layout.addWidget(tabs)
         layout.addWidget(settings_card, 1)
 
@@ -696,25 +950,169 @@ class MainWindow(QWidget):
         self.record_btn.setStyleSheet("background-color: #ef4444;")
 
     def stop_record(self):
-        """Arrête l'enregistrement."""
+        """Arrête l'enregistrement et demande un nom."""
         self.recording = False
         self.record_btn.setStyleSheet("")
+        
+        if self.record_buffer.size == 0:
+            QMessageBox.warning(self, "Erreur", "Rien à enregistrer")
+            return
+        
+        # Demander un nom pour l'enregistrement
+        name, ok = self.ask_recording_name()
+        if not ok or not name:
+            return
+        
+        # Sauvegarder directement dans la DB et fichier
+        self.save_recording_with_name(name)
 
-    def save_recording(self):
-        """Sauvegarde l'enregistrement."""
+    def ask_recording_name(self) -> tuple:
+        """Demande un nom pour l'enregistrement."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Nommer l'enregistrement")
+        dialog.setGeometry(500, 300, 400, 150)
+        
+        layout = QVBoxLayout(dialog)
+        
+        label = QLabel("Nom de l'enregistrement:")
+        label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        layout.addWidget(label)
+        
+        input_field = QLineEdit()
+        input_field.setPlaceholderText("Ex: Ma Melodie")
+        input_field.setMinimumHeight(35)
+        layout.addWidget(input_field)
+        
+        # Boutons
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        cancel_btn = QPushButton("Annuler")
+        
+        ok_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+        
+        result = dialog.exec_()
+        return input_field.text(), result == QDialog.Accepted
+
+    def save_recording_with_name(self, name: str):
+        """Sauvegarde l'enregistrement avec un nom personnalisé."""
         if self.record_buffer.size == 0:
             QMessageBox.warning(self, "Erreur", "Rien à enregistrer")
             return
 
         os.makedirs("recordings", exist_ok=True)
-        filename = f"rec_{self.user_id}_{int(__import__('time').time())}.wav"
+        timestamp = int(__import__('time').time())
+        filename = f"rec_{self.user_id}_{timestamp}.wav"
         filepath = os.path.join("recordings", filename)
 
         if audio_core.save_recording(self.record_buffer, filepath):
-            QMessageBox.information(self, "Succès", f"Sauvegardé: {filepath}")
+            # Calculer la durée
+            duration = len(self.record_buffer) / 44100.0
+            # Sauvegarder dans la DB avec le nom personnalisé
+            self.db.save_recording(self.user_id, filepath, duration, name)
+            # Recharger la liste des enregistrements
+            if hasattr(self, 'recordings_player'):
+                self.recordings_player.load_recordings()
+            QMessageBox.information(self, "Succès", f"Enregistrement '{name}' sauvegardé!")
             self.record_buffer = np.zeros((0,))
         else:
             QMessageBox.warning(self, "Erreur", "Impossible de sauvegarder")
+
+    def save_recording(self):
+        """Exporte un enregistrement existant vers le disque local."""
+        if not hasattr(self, 'recordings_player'):
+            QMessageBox.warning(self, "Erreur", "Lecteur non disponible")
+            return
+        
+        recordings = self.recordings_player.recordings_list
+        if not recordings:
+            QMessageBox.warning(self, "Erreur", "Aucun enregistrement disponible")
+            return
+        
+        # Créer une fenêtre de sélection
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Exporter des enregistrements")
+        dialog.setGeometry(400, 200, 500, 400)
+        dialog.setStyleSheet(get_stylesheet(COLORS[self.theme]))
+        
+        layout = QVBoxLayout(dialog)
+        
+        label = QLabel("Sélectionner l'enregistrement à exporter:")
+        label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        layout.addWidget(label)
+        
+        # Liste de sélection
+        list_widget = QListWidget()
+        for rec in recordings:
+            try:
+                rec_name = rec['name'] if rec['name'] else rec['filename'].split('/')[-1]
+            except (KeyError, TypeError):
+                rec_name = rec['filename'].split('/')[-1]
+            
+            # Ajouter l'extension .wav si absent
+            if not rec_name.endswith('.wav'):
+                rec_name += '.wav'
+            
+            item_text = f"{rec_name} ({rec['duration']:.1f}s)"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, rec['id'])
+            list_widget.addItem(item)
+        layout.addWidget(list_widget)
+        
+        # Boutons
+        btn_layout = QHBoxLayout()
+        export_btn = QPushButton("Exporter")
+        cancel_btn = QPushButton("Annuler")
+        
+        def on_export():
+            selected = list_widget.currentItem()
+            if not selected:
+                QMessageBox.warning(dialog, "Erreur", "Sélectionnez un enregistrement")
+                return
+            
+            # Récupérer l'enregistrement
+            rec_id = selected.data(Qt.UserRole)
+            for rec in recordings:
+                if rec['id'] == rec_id:
+                    self.export_to_file(rec)
+                    dialog.accept()
+                    break
+        
+        export_btn.clicked.connect(on_export)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        btn_layout.addWidget(export_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+        
+        dialog.exec_()
+
+    def export_to_file(self, recording: dict):
+        """Exporte un enregistrement sélectionné sur le disque local."""
+        from PyQt5.QtWidgets import QFileDialog
+        
+        # Ouvrir le sélecteur de fichier
+        filepath = QFileDialog.getSaveFileName(
+            self,
+            "Sauvegarder l'enregistrement",
+            os.path.expanduser("~"),
+            "Fichiers WAV (*.wav);;Tous les fichiers (*.*)"
+        )[0]
+        
+        if not filepath:
+            return
+        
+        try:
+            import shutil
+            # Copier le fichier d'enregistrement vers la destination
+            shutil.copy2(recording['filename'], filepath)
+            QMessageBox.information(self, "Succès", f"Enregistrement exporté:\n{filepath}")
+        except Exception as e:
+            QMessageBox.warning(self, "Erreur", f"Erreur lors de l'export:\n{str(e)}")
     
     def set_volume(self, value: int):
         """Ajuste le volume (0-100)."""

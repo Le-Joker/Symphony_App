@@ -43,11 +43,19 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 filename TEXT NOT NULL,
+                name TEXT DEFAULT 'Enregistrement',
                 duration REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         """)
+
+        # Migration: Ajouter la colonne 'name' si elle n'existe pas
+        try:
+            c.execute("ALTER TABLE recordings ADD COLUMN name TEXT DEFAULT 'Enregistrement'")
+        except sqlite3.OperationalError:
+            # La colonne existe déjà
+            pass
 
         conn.commit()
         conn.close()
@@ -86,13 +94,13 @@ class Database:
             return row['id']
         return None
 
-    def save_recording(self, user_id: int, filename: str, duration: float):
+    def save_recording(self, user_id: int, filename: str, duration: float, name: str = "Enregistrement"):
         """Enregistre une métadonnée d'enregistrement."""
         conn = self.get_connection()
         c = conn.cursor()
         c.execute(
-            "INSERT INTO recordings (user_id, filename, duration) VALUES (?, ?, ?)",
-            (user_id, filename, duration)
+            "INSERT INTO recordings (user_id, filename, duration, name) VALUES (?, ?, ?, ?)",
+            (user_id, filename, duration, name)
         )
         conn.commit()
         conn.close()
@@ -108,3 +116,17 @@ class Database:
         rows = c.fetchall()
         conn.close()
         return rows
+
+    def delete_recording(self, recording_id: int) -> bool:
+        """Supprime un enregistrement de la base de données."""
+        try:
+            conn = self.get_connection()
+            c = conn.cursor()
+            c.execute("DELETE FROM recordings WHERE id = ?", (recording_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Erreur suppression DB: {e}")
+            return False
+

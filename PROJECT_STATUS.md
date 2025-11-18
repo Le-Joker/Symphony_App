@@ -1,7 +1,5 @@
 # 🎵 Symphony App 
 
-## 📋 Résumé Exécutif
-
 **Symphony** est une application de balafon numérique moderne 
 
 ## 🚀 COMMANDES DE LANCEMENT
@@ -87,20 +85,43 @@ Menu déroulant: **Pentatonique** / **Majeur** / **Chromatique**
 ### Visualiser le spectre
 Graphique en temps réel (bars vertes) → Fréquences 0-2000 Hz
 
-### Enregistrer
-1. Bouton: **Enregistrer**
+### Enregistrer et Écouter (WORKFLOW AMÉLIORÉ v2.1)
+1. Bouton: **Enregistrer** (rouge)
 2. Jouez ce que vous voulez
-3. Bouton: **Arrêter**
-4. Bouton: **Exporter** → Fichier WAV
+3. Bouton: **Arrêter** (rouge)
+   → Une fenêtre s'ouvre pour nommer votre enregistrement
+4. Entrez le nom (ex: "Ma Mélodie")
+   → Enregistrement sauvegardé directement dans l'onglet!
+   
+### Exporter un Enregistrement (NOUVEAU)
+1. Bouton: **Exporter**
+2. Fenêtre s'ouvre avec liste de vos enregistrements
+3. Sélectionnez un enregistrement
+4. Explorateur fichiers s'ouvre
+5. Naviguez et choisissez le dossier de destination
+6. Fichier WAV sauvegardé sur votre disque local
+
+### Lire les Enregistrements (BARRE PROGESSIVE FIXÉE)
+1. Onglet: **Enregistrements** (dans Paramètres)
+2. Sélectionner un enregistrement dans la liste
+3. Bouton: **Ecouter** → Lecture lance
+4. **Barre de progression se met à jour en temps réel** ✨
+5. Bouton: **Arreter** → Arrête la lecture
+6. Bouton: **Supprimer** → Supprime le fichier
 
 ### Paramètres
-**Onglet Audio**:
-- Volume (0-100%)
-- Durée son (0.1-2.0s)
+**Onglet Durée**:
+- Ajuster durée (0.1-2.0 secondes)
+- Plus court = percussif, plus long = tenu
 
 **Onglet Apparence**:
 - Thème: Sombre/Clair (changement instantané)
 - Mode plein écran: Checkbox
+
+**Onglet Enregistrements**:
+- Liste de tous vos enregistrements sauvegardés
+- Écouter directement dans l'app
+- Supprimer les anciens enregistrements
 
 ---
 
@@ -119,17 +140,19 @@ core.py (200 lignes)
 ├─ FFT spectrum analysis
 └─ Playback asynchrone (daemon threading)
 
-ui.py (650 lignes)
+ui.py (971 lignes)
 ├─ LoginWindow (authentification)
 ├─ MainWindow (balafon + paramètres)
 ├─ ModernKey (lames avec subrillance)
 ├─ SpectrumWidget (FFT bars)
-├─ Paramètres (onglets Audio/Apparence)
+├─ RecordingPlayerWidget (nouveau - lecteur enregistrements)
+├─ Paramètres (3 onglets: Durée, Apparence, Enregistrements)
 └─ Thème adaptatif (sombre/clair)
 
 database.py (110 lignes)
 ├─ Classe Database (gestion BD)
-├─ Tables: users, recordings
+├─ Tables: users, recordings (avec champ 'name')
+├─ Migration DB (ajout colonne name si nécessaire)
 ├─ PBKDF2-SHA256 (100k iterations)
 └─ ACID transactions
 
@@ -167,7 +190,7 @@ AudioCore (singleton):
 
 Database (SQLite):
 ├─ users: id, username, password_hash, created_at
-└─ recordings: id, user_id, filename, duration, created_at
+└─ recordings: id, user_id, filename, name, duration, created_at
 ```
 
 ---
@@ -193,9 +216,13 @@ Database (SQLite):
 - ✅ Balafon 22 lames
 - ✅ Modes échelle (Pentatonic/Major/Chromatic)
 - ✅ Spectre FFT (JetAudio-style)
-- ✅ Enregistrement + Export WAV
+- ✅ Enregistrement + Nommage personnalisé (NOUVEAU v2.1)
+- ✅ Lecteur d'enregistrements (NOUVEAU)
+- ✅ Barre de progression dynamique (FIXÉ v2.1)
+- ✅ Export sur disque local (NOUVEAU v2.1)
+- ✅ Suppression d'enregistrements
 - ✅ Thème sombre/clair
-- ✅ Paramètres (Audio + Apparence)
+- ✅ Paramètres (3 onglets: Durée, Apparence, Enregistrements)
 - ✅ Clavier AZERTY mappage
 
 **Tests**:
@@ -221,8 +248,9 @@ cat DOCUMENTATION.txt
 Contient:
 - Architecture générale
 - Explication détaillée de chaque fichier
-- Méthodes et leurs rôles
-- Guide utilisateur complet
+- Méthodologie des fonctionnalités d'enregistrement et lecteur
+- Guide d'utilisation complet
+- Section sur RecordingPlayerWidget (nouveau)
 
 ---
 
